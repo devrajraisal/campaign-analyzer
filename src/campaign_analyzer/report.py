@@ -1,0 +1,113 @@
+"""Build a single, self contained HTML report."""
+
+from __future__ import annotations
+
+from html import escape
+
+import pandas as pd
+
+from . import charts
+from .formatting import money, multiple, percent, whole
+from .insights import Insight
+
+STYLE = """
+body{font-family:system-ui,-apple-system,'Segoe UI',sans-serif;margin:0;background:#f6f7fb;
+color:#1b1f2e}
+main{max-width:980px;margin:0 auto;padding:2rem 1.2rem}
+h1{margin-bottom:.2rem} h2{margin-top:2rem}
+.muted{color:#6b7185}
+.cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:.8rem}
+.card{background:#fff;border:1px solid #e3e6ef;border-radius:12px;padding:.9rem 1rem}
+.card span{display:block;color:#6b7185;font-size:.8rem}.card strong{font-size:1.4rem}
+.insight{background:#fff;border:1px solid #e3e6ef;border-left:5px solid #9aa;border-radius:10px;
+padding:.7rem 1rem;margin:.6rem 0}
+.insight.warning{border-left-color:#f59e0b}.insight.good{border-left-color:#10b981}
+table{width:100%;border-collapse:collapse;background:#fff;border:1px solid #e3e6ef;font-size:.9rem}
+th,td{padding:.5rem .7rem;border-bottom:1px solid #eceef5;text-align:right}
+th:first-child,td:first-child{text-align:left}
+img{max-width:100%;background:#fff;border:1px solid #e3e6ef;border-radius:12px;margin:.5rem 0}
+.notes{background:#fff8e6;border:1px solid #f3dca0;border-radius:10px;padding:.5rem 1rem}
+footer{margin-top:2.5rem;color:#6b7185;font-size:.85rem}
+"""
+
+
+def _cards(summary: dict, currency: str) -> str:
+    items = [
+        ("Spend", money(summary["spend"], currency)),
+        ("Impressions", whole(summary["impressions"])),
+        ("Clicks", whole(summary["clicks"])),
+        ("CTR", percent(summary["ctr"])),
+        ("CPC", money(summary["cpc"], currency)),
+        ("CPM", money(summary["cpm"], currency)),
+    ]
+    if summary["has_conversions"]:
+        items += [("Conversions", whole(summary["conversions"])),
+                  ("Cost per result", money(summary["cpa"], currency)),
+                  ("Conversion rate", percent(summary["conv_rate"]))]
+    if summary["has_revenue"]:
+        items += [("Revenue", money(summary["revenue"], currency)),
+                  ("ROAS", multiple(summary["roas"]))]
+    return "".join(f'<div class="card"><span>{escape(k)}</span><strong>{escape(v)}</strong></div>'
+                   for k, v in items)
+
+
+def _campaign_table(campaigns: pd.DataFrame, summary: dict, currency: str) -> str:
+    columns = [("Campaign", None), ("Spend", "spend"), ("Share", "spend_share"), ("CTR", "ctr"),
+               ("CPC", "cpc")]
+    if summary["has_conversions"]:
+        columns += [("Results", "conversions"), ("Cost/result", "cpa")]
+    if summary["has_revenue"]:
+        columns.append(("ROAS", "roas"))
+    formats = {"spend": lambda v: money(v, currency), "spend_share": lambda v: percent(v, 1),
+               "ctr": percent, "cpc": lambda v: money(v, currency), "conversions": whole,
+               "cpa": lambda v: money(v, currency), "roas": multiple}
+    head = "".join(f"<th>{escape(label)}</th>" for label, _ in columns)
+    body = ""
+    for _, row in campaigns.iterrows():
+        cells = f"<td>{escape(str(row['campaign']))}</td>"
+        cells += "".join(f"<td>{escape(formats[key](row[key]))}</td>" for _, key in columns[1:])
+        body += f"<tr>{cells}</tr>"
+    return f"<table><thead><tr>{head}</tr></thead><tbody>{body}</tbody></table>"
+
+
+def _image(encoded: str | None, alt: str) -> str:
+    if not encoded:
+        return ""
+    return f'<img alt="{escape(alt)}" src="data:image/png;base64,{encoded}">'
+
+
+def build_report(
+    summary: dict,
+    campaigns: pd.DataFrame,
+    daily: pd.DataFrame,
+    insights: list[Insight],
+    warnings: list[str],
+    *,
+    currency: str = "USD",
+    title: str = "Campaign report",
+) -> str:
+    insight_html = "".join(
+        f'<div class="insight {escape(item.severity)}"><strong>{escape(item.title)}</strong>'
+        f'<div class="muted">{escape(item.detail)}</div></div>' for item in insights)
+    notes = ""
+    if warnings:
+        items = "".join(f"<li>{escape(text)}</li>" for text in warnings)
+        notes = f'<h2>Data notes</h2><div class="notes"><ul>{items}</ul></div>'
+    period = f"{summary['start']} to {summary['end']} ({summary['days']} days, " \
+             f"{summary['campaigns']} campaigns)"
+    return f"""<!doctype html>
+<html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{escape(title)}</title><style>{STYLE}</style></head>
+<body><main>
+<h1>{escape(title)}</h1><p class="muted">{escape(period)}</p>
+<div class="cards">{_cards(summary, currency)}</div>
+<h2>Insights</h2>{insight_html}
+<h2>Trends</h2>{_image(charts.daily_chart(daily, currency), "Daily spend chart")}
+<h2>Campaigns</h2>{_campaign_table(campaigns, summary, currency)}
+{_image(charts.spend_chart(campaigns, currency), "Spend by campaign chart")}
+{_image(charts.efficiency_chart(campaigns), "Efficiency by campaign chart")}
+{notes}
+<footer>Generated by campaign-analyzer. Insights come from simple rules, so treat them as
+prompts for a closer look, not as final answers.</footer>
+</main></body></html>"""
