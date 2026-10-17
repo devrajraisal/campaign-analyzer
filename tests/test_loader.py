@@ -87,3 +87,31 @@ def test_warns_when_clicks_exceed_impressions():
 def test_every_row_bad_means_an_error():
     with pytest.raises(DataError, match="No usable rows"):
         load_campaigns(csv_text(["not a date,A,1,1,1"]))
+
+
+@pytest.mark.parametrize(
+    ("text", "expected"),
+    [
+        ("$1,234.50", 1234.5),
+        ("Rs. 12,500", 12500),
+        ("Rs.12,500", 12500),
+        ("PKR1,000", 1000),
+        ("USD 12.50", 12.5),
+        ("1,234.50 PKR", 1234.5),
+        (".5", 0.5),
+        ("1e5", 100000),
+        ("  42  ", 42),
+    ],
+)
+def test_numbers_with_currency_labels_are_read_correctly(text, expected):
+    # Regression test: "Rs. 12,500" used to be read as 0.125 because the dot was kept.
+    result = load_campaigns(csv_text([f'2026-10-01,A,"{text}",1,1']))
+    assert result.data.iloc[0]["impressions"] == expected
+
+
+@pytest.mark.parametrize("text", ["abc", "-", ".", "1.2.3", "Rs.", "N/A"])
+def test_text_that_is_not_a_number_is_skipped_with_a_warning(text):
+    rows = ["2026-10-02,B,100,5,1", f'2026-10-01,A,"{text}",1,1']
+    result = load_campaigns(csv_text(rows))
+    assert len(result.data) == 1
+    assert any("unreadable numbers" in warning for warning in result.warnings)

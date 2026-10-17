@@ -72,10 +72,25 @@ def resolve_columns(headers: list[str], column_map: dict[str, str] | None = None
     return mapping
 
 
+_SCIENTIFIC = r"-?(?:\d+\.?\d*|\.\d+)[eE][+-]?\d+"
+
+
 def _to_number(series: pd.Series) -> pd.Series:
-    # Removes currency symbols and thousands separators, so "$1,234.50" becomes 1234.50.
-    cleaned = series.astype("string").str.replace(r"[^0-9.\-]", "", regex=True)
-    return pd.to_numeric(cleaned, errors="coerce")
+    """Read text such as "$1,234.50", "Rs. 12,500", or "USD 12.50" as numbers.
+
+    A leading currency label like "Rs." has to be removed whole. Otherwise its dot would be
+    read as a decimal point and 12,500 would silently become 0.125.
+    """
+    text = series.astype("string").str.strip()
+    cleaned = (
+        text.str.replace(r"^[^\d.\-]*[A-Za-z]\.?\s*", "", regex=True)  # label: "Rs.", "USD "
+        .str.replace(r"[^0-9.\-]", "", regex=True)  # symbols, separators, trailing labels
+    )
+    numbers = pd.to_numeric(cleaned, errors="coerce")
+    scientific = text.str.fullmatch(_SCIENTIFIC).fillna(False).astype(bool)
+    if scientific.any():  # 1e5 means 100000
+        numbers = numbers.mask(scientific, pd.to_numeric(text.where(scientific), errors="coerce"))
+    return numbers
 
 
 def load_campaigns(source: str | IO[str], column_map: dict[str, str] | None = None) -> LoadResult:

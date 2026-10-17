@@ -115,7 +115,7 @@ ruff check .
 pytest
 ```
 
-The suite has 42 tests. They were run with warnings treated as errors against pandas 3.0 and pandas 2.3. GitHub Actions runs the lint and the tests on Python 3.10, 3.12, and 3.13.
+The suite has 58 tests. They were run with warnings treated as errors against pandas 3.0 and pandas 2.3. GitHub Actions runs the lint and the tests on Python 3.10, 3.12, and 3.13.
 
 ## Limits
 

@@ -53,3 +53,10 @@ def test_thresholds_can_be_changed(sample_df):
 def test_currency_label_is_used_in_the_text(sample_df):
     waste = [i for i in generate_insights(sample_df, currency="PKR") if i.kind == "waste"]
     assert waste and "PKR" in waste[0].detail
+
+
+def test_a_zero_baseline_week_is_skipped_instead_of_crashing():
+    # Regression test: the earlier week has no clicks, so the click-through rate baseline is 0.
+    rows = [f"2026-10-{day:02d},A,1000,{0 if day <= 7 else 20},10" for day in range(1, 15)]
+    insights = generate_insights(load_campaigns(csv_text(rows)).data)
+    assert not any(item.kind == "trend" for item in insights)

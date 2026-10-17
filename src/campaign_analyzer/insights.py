@@ -78,7 +78,8 @@ def _trend(df: pd.DataFrame, change_limit: float) -> list[Insight]:
         return ratio(part["clicks"].sum(), part["impressions"].sum())
 
     now, before = value(recent), value(previous)
-    if now is None or before is None:
+    # A zero baseline gives no meaningful percentage, so there is nothing to compare against.
+    if now is None or before is None or before == 0:
         return []
     change = (now - before) / before
     if abs(change) < change_limit:
